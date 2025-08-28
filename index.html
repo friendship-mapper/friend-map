@@ -1,48 +1,152 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8" />
-  <title>Map</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-  <style>
-    #map { height: 100vh; width: 100%; }
-  </style>
+<meta charset="UTF-8">
+<title>Наша карта</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet-draw/dist/leaflet.draw.css"/>
+<style>
+  #map { height: 100vh; width: 100%; }
+  .search-box {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 1000;
+    background: white;
+    padding: 8px;
+    border-radius: 6px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    font-family: sans-serif;
+  }
+  .search-box input { width: 180px; padding: 4px; }
+</style>
 </head>
 <body>
 <div id="map"></div>
 
+<div class="search-box">
+  <input type="text" id="searchInput" placeholder="🔍 Поиск по названию...">
+</div>
+
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+<script src="https://unpkg.com/leaflet-draw/dist/leaflet.draw.js"></script>
+
 <script>
-// ====== Карта ======
 var map = L.map('map').setView([59.437, 24.753], 12);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
 
-// ====== Загружаем зоны ======
-fetch("zones.geojson")
-  .then(r => r.json())
+
+let geojsonLayer;
+fetch('zones.geojson')
+  .then(res => res.json())
   .then(data => {
-    var simplified = turf.simplify(data, {tolerance: 0.00005, highQuality: true});
-    L.geoJSON(simplified, {
-      style: function(feature) {
-        return { color: feature.properties.color || 'blue', weight: 3 };
+    geojsonLayer = L.geoJSON(data, {
+      style: feature => {
+        if(feature.geometry.type === "Polygon") {
+          return { color: feature.properties.color || "green", fillOpacity: 0.3 };
+        } else if(feature.geometry.type === "LineString") {
+          return { color: feature.properties.color || "blue" };
+        }
       },
-      pointToLayer: function(feature, latlng) {
-        return L.circleMarker(latlng, { 
-          radius: 6, 
-          color: feature.properties.color || 'blue', 
-          fillColor: feature.properties.color || 'blue',
+      pointToLayer: (feature, latlng) => {
+        return L.circleMarker(latlng, {
+          radius: 6,
+          color: feature.properties.color || "red",
+          fillColor: feature.properties.color || "red",
           fillOpacity: 0.8
         });
       },
-      onEachFeature: function(feature, layer) {
-        var name = feature.properties.name || "Безымянное место";
-        var desc = feature.properties.description || "";
-        layer.bindPopup("<b>" + name + "</b><br>" + desc);
+      onEachFeature: (feature, layer) => {
+        if (feature.properties && feature.properties.name) {
+          layer.bindPopup("<b>" + feature.properties.name + "</b><br>" + (feature.properties.description || ""));
+        }
       }
     }).addTo(map);
-  })
-  .catch(() => console.log("Файл zones.geojson не найден"));
+  });
+
+
+var drawControl = new L.Control.Draw({
+  draw: {
+    polyline: false,
+    polygon: false,
+    rectangle: false,
+    circlemarker: false,
+    marker: true,
+    circle: true
+  },
+  edit: false
+});
+map.addControl(drawControl);
+
+
+map.on(L.Draw.Event.CREATED, function (e) {
+  var layer = e.layer;
+
+  let defaultColor = "red";
+  if(layer instanceof L.Circle || layer instanceof L.Marker) {
+    layer.setStyle && layer.setStyle({
+      color: defaultColor,
+      fillColor: defaultColor,
+      fillOpacity: 0.5,
+      weight: 2
+    });
+    layer.setRadius && layer.setRadius(layer.getRadius() || 20);
+  }
+
+  map.addLayer(layer);
+
+  setTimeout(() => {
+    var name = prompt("Название точки:");
+    var desc = prompt("Описание:");
+    var color = prompt("Цвет (red, yellow, green и т.д.):", defaultColor);
+
+    var geojson = layer.toGeoJSON();
+    geojson.properties = {
+      name: name || "Без названия",
+      description: desc || "",
+      color: color || defaultColor
+    };
+
+    sendToDiscord(geojson);
+    alert("Точка отправлена на модерацию.");
+  }, 50);
+});
+
+document.getElementById("searchInput").addEventListener("input", function() {
+  let text = this.value.toLowerCase();
+  if(!geojsonLayer) return;
+  geojsonLayer.eachLayer(layer => {
+    let name = layer.feature.properties?.name?.toLowerCase() || "";
+    if(name.includes(text) && text.length > 0) {
+      map.fitBounds(layer.getBounds ? layer.getBounds() : L.latLngBounds([layer.getLatLng()]));
+      layer.openPopup && layer.openPopup();
+    }
+  });
+});
+
+
+function sendToDiscord(feature) {
+  var webhookUrl = "https://discord.com/api/webhooks/1410588511752556624/xePsh-VL5A5SSLI2ANkdC0JZg_YbWOAgPIBz7Meinankyh22QsfTbb05uu9Jnc8WmeMf"; // И вот зачем ты тут роешься?
+
+  var payload = {
+    content: "📍 Новое предложение точки",
+    files: [
+      {
+        name: "suggestion.geojson",
+        file: new Blob([JSON.stringify(feature, null, 2)], { type: "application/json" })
+      }
+    ]
+  };
+
+  var formData = new FormData();
+  formData.append("payload_json", JSON.stringify({ content: payload.content }));
+  formData.append("files[0]", payload.files[0].file, payload.files[0].name);
+
+  fetch(webhookUrl, {
+    method: "POST",
+    body: formData
+  }).then(res => console.log("Отправлено в Discord", res));
+}
 </script>
 </body>
 </html>
