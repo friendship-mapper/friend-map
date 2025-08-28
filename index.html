@@ -2,34 +2,47 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <title>Map</title>
+  <title>Наша карта</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <style>
     #map { height: 100vh; width: 100%; }
   </style>
 </head>
 <body>
-  <div id="map"></div>
+<div id="map"></div>
 
-  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-  <script>
-    var map = L.map('map').setView([59.437, 24.753], 12);
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+<script>
+// ====== Карта ======
+var map = L.map('map').setView([59.437, 24.753], 12);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
-
-    fetch("zones.geojson")
-      .then(r => r.json())
-      .then(data => {
-        L.geoJSON(data, {
-          onEachFeature: function(feature, layer) {
-            if (feature.properties && feature.properties.name) {
-              var desc = feature.properties.description ? "<br>" + feature.properties.description : "";
-              layer.bindPopup("<b>" + feature.properties.name + "</b>" + desc);
-            }
-          }
-        }).addTo(map);
-      })
-      .catch(() => console.log("Файл zones.geojson не найден"));
-  </script>
+// ====== Загружаем зоны ======
+fetch("zones.geojson")
+  .then(r => r.json())
+  .then(data => {
+    var simplified = turf.simplify(data, {tolerance: 0.00005, highQuality: true});
+    L.geoJSON(simplified, {
+      style: function(feature) {
+        return { color: feature.properties.color || 'blue', weight: 3 };
+      },
+      pointToLayer: function(feature, latlng) {
+        return L.circleMarker(latlng, { 
+          radius: 6, 
+          color: feature.properties.color || 'blue', 
+          fillColor: feature.properties.color || 'blue',
+          fillOpacity: 0.8
+        });
+      },
+      onEachFeature: function(feature, layer) {
+        var name = feature.properties.name || "Безымянное место";
+        var desc = feature.properties.description || "";
+        layer.bindPopup("<b>" + name + "</b><br>" + desc);
+      }
+    }).addTo(map);
+  })
+  .catch(() => console.log("Файл zones.geojson не найден"));
+</script>
 </body>
 </html>
